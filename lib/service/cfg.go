@@ -74,6 +74,8 @@ type Config struct {
 	// Token is used to register this Teleport instance with the auth server
 	Token string
 
+	AWSToken string
+
 	// AuthServers is a list of auth servers, proxies and peer auth servers to
 	// connect to. Yes, this is not just auth servers, the field name is
 	// misleading.

@@ -321,6 +321,7 @@ type Global struct {
 	DataDir     string           `yaml:"data_dir,omitempty"`
 	PIDFile     string           `yaml:"pid_file,omitempty"`
 	AuthToken   string           `yaml:"auth_token,omitempty"`
+	AWSToken    string           `yaml:"aws_token,omitempty"`
 	AuthServers []string         `yaml:"auth_servers,omitempty"`
 	Limits      ConnectionLimits `yaml:"connection_limits,omitempty"`
 	Logger      Log              `yaml:"log,omitempty"`

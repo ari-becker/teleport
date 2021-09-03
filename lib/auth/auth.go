@@ -1724,6 +1724,8 @@ type RegisterUsingTokenRequest struct {
 	// RemoteAddr is the remote address of the host requesting a host certificate.
 	// It is used to replace 0.0.0.0 in the list of additional principals.
 	RemoteAddr string `json:"remote_addr"`
+
+	EC2IdentityDocument []byte `json:"ec2_id"`
 }
 
 // CheckAndSetDefaults checks for errors and sets defaults

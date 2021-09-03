@@ -18,6 +18,8 @@ package service
 
 import (
 	"crypto/tls"
+	"io"
+	"net/http"
 	"path/filepath"
 	"time"
 
@@ -326,6 +328,49 @@ func (process *TeleportProcess) reRegister(conn *Connector, additionalPrincipals
 	return identity, nil
 }
 
+func getIdentityDocument() ([]byte, error) {
+	var client http.Client
+	tokenRequest, err := http.NewRequest(http.MethodPut, "http://169.254.169.254/latest/api/token", nil)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	tokenRequest.Header.Set("X-aws-ec2-metadata-token-ttl-seconds", "60")
+	resp, err := client.Do(tokenRequest)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	defer resp.Body.Close()
+	respBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, trace.BadParameter("non-200 response from AWS IMDS endpoint: %q %v %q",
+			resp.Status, resp.Header, string(respBytes))
+	}
+	token := string(respBytes)
+
+	iidRequest, err := http.NewRequest(http.MethodGet, "http://169.254.169.254/latest/dynamic/instance-identity/document", nil)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	iidRequest.Header.Set("X-aws-ec2-metadata-token", token)
+	resp, err = client.Do(iidRequest)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	defer resp.Body.Close()
+	respBytes, err = io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, trace.BadParameter("non-200 response from AWS IMDS endpoint: %q %v %q",
+			resp.Status, resp.Header, string(respBytes))
+	}
+	return respBytes, nil
+}
+
 func (process *TeleportProcess) firstTimeConnect(role types.SystemRole) (*Connector, error) {
 	id := auth.IdentityID{
 		Role:     role,
@@ -346,10 +391,23 @@ func (process *TeleportProcess) firstTimeConnect(role types.SystemRole) (*Connec
 			return nil, trace.Wrap(err)
 		}
 	} else {
+		token := process.Config.Token
+		if process.Config.AWSToken != "" {
+			token = process.Config.AWSToken
+		}
 		// Auth server is remote, so we need a provisioning token.
-		if process.Config.Token == "" {
+		if token == "" {
 			return nil, trace.BadParameter("%v must join a cluster and needs a provisioning token", role)
 		}
+
+		var ec2IdentityDocument []byte
+		if process.Config.AWSToken != "" {
+			ec2IdentityDocument, err = getIdentityDocument()
+			if err != nil {
+				return nil, trace.Wrap(err)
+			}
+		}
+
 		process.log.Infof("Joining the cluster with a secure token.")
 		const reason = "first-time-connect"
 		keyPair, err := process.generateKeyPair(role, reason)
@@ -369,6 +427,7 @@ func (process *TeleportProcess) firstTimeConnect(role types.SystemRole) (*Connec
 			CipherSuites:         process.Config.CipherSuites,
 			CAPins:               process.Config.CAPins,
 			CAPath:               filepath.Join(defaults.DataDir, defaults.CACertFile),
+			EC2IdentityDocument:  ec2IdentityDocument,
 			GetHostCredentials:   client.HostCredentials,
 			Clock:                process.Clock,
 		})
