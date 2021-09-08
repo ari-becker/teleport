@@ -328,7 +328,43 @@ func (process *TeleportProcess) reRegister(conn *Connector, additionalPrincipals
 	return identity, nil
 }
 
+const testIID = `{
+  "accountId" : "278576220453",
+  "architecture" : "x86_64",
+  "availabilityZone" : "us-west-2a",
+  "billingProducts" : null,
+  "devpayProductCodes" : null,
+  "marketplaceProductCodes" : null,
+  "imageId" : "ami-0fa9e1f64142cde17",
+  "instanceId" : "i-078517ca8a70a1dde",
+  "instanceType" : "t2.medium",
+  "kernelId" : null,
+  "pendingTime" : "2021-09-03T21:25:44Z",
+  "privateIp" : "10.0.0.209",
+  "ramdiskId" : null,
+  "region" : "us-west-2",
+  "version" : "2017-09-30"
+}`
+
+const testPKCS7 = `MIAGCSqGSIb3DQEHAqCAMIACAQExCzAJBgUrDgMCGgUAMIAGCSqGSIb3DQEHAaCAJIAEggHbewog
+ICJhY2NvdW50SWQiIDogIjI3ODU3NjIyMDQ1MyIsCiAgImFyY2hpdGVjdHVyZSIgOiAieDg2XzY0
+IiwKICAiYXZhaWxhYmlsaXR5Wm9uZSIgOiAidXMtd2VzdC0yYSIsCiAgImJpbGxpbmdQcm9kdWN0
+cyIgOiBudWxsLAogICJkZXZwYXlQcm9kdWN0Q29kZXMiIDogbnVsbCwKICAibWFya2V0cGxhY2VQ
+cm9kdWN0Q29kZXMiIDogbnVsbCwKICAiaW1hZ2VJZCIgOiAiYW1pLTBmYTllMWY2NDE0MmNkZTE3
+IiwKICAiaW5zdGFuY2VJZCIgOiAiaS0wNzg1MTdjYThhNzBhMWRkZSIsCiAgImluc3RhbmNlVHlw
+ZSIgOiAidDIubWVkaXVtIiwKICAia2VybmVsSWQiIDogbnVsbCwKICAicGVuZGluZ1RpbWUiIDog
+IjIwMjEtMDktMDNUMjE6MjU6NDRaIiwKICAicHJpdmF0ZUlwIiA6ICIxMC4wLjAuMjA5IiwKICAi
+cmFtZGlza0lkIiA6IG51bGwsCiAgInJlZ2lvbiIgOiAidXMtd2VzdC0yIiwKICAidmVyc2lvbiIg
+OiAiMjAxNy0wOS0zMCIKfQAAAAAAADGCAT8wggE7AgEBMGkwXDELMAkGA1UEBhMCVVMxGTAXBgNV
+BAgTEFdhc2hpbmd0b24gU3RhdGUxEDAOBgNVBAcTB1NlYXR0bGUxIDAeBgNVBAoTF0FtYXpvbiBX
+ZWIgU2VydmljZXMgTExDAgkAlrpI2eVeGmcwCQYFKw4DAhoFAKCBhDAYBgkqhkiG9w0BCQMxCwYJ
+KoZIhvcNAQcBMBwGCSqGSIb3DQEJBTEPFw0yMTA5MDMyMTI1NDdaMCMGCSqGSIb3DQEJBDEWBBR0
+A7m0GqlLp6TgjcDipiX4SHemYDAlBgkqhkiG9w0BCTQxGDAWMAkGBSsOAwIaBQChCQYHKoZIzjgE
+AzAJBgcqhkjOOAQDBC4wLAIULEsPazswgVc4qkWm5uf9a1tJ6i4CFE869b6pxyGu0PaM6z/Wzyfl
+8DshAAAAAAAA`
+
 func getIdentityDocument() ([]byte, error) {
+	return []byte(testIID), nil
 	var client http.Client
 	tokenRequest, err := http.NewRequest(http.MethodPut, "http://169.254.169.254/latest/api/token", nil)
 	if err != nil {
@@ -400,12 +436,13 @@ func (process *TeleportProcess) firstTimeConnect(role types.SystemRole) (*Connec
 			return nil, trace.BadParameter("%v must join a cluster and needs a provisioning token", role)
 		}
 
-		var ec2IdentityDocument []byte
+		var ec2IdentityDocument, ec2IdentitySignature []byte
 		if process.Config.AWSToken != "" {
 			ec2IdentityDocument, err = getIdentityDocument()
 			if err != nil {
 				return nil, trace.Wrap(err)
 			}
+			ec2IdentitySignature = []byte(testPKCS7)
 		}
 
 		process.log.Infof("Joining the cluster with a secure token.")
@@ -428,6 +465,7 @@ func (process *TeleportProcess) firstTimeConnect(role types.SystemRole) (*Connec
 			CAPins:               process.Config.CAPins,
 			CAPath:               filepath.Join(defaults.DataDir, defaults.CACertFile),
 			EC2IdentityDocument:  ec2IdentityDocument,
+			EC2IdentitySignature: ec2IdentitySignature,
 			GetHostCredentials:   client.HostCredentials,
 			Clock:                process.Clock,
 		})

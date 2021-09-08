@@ -94,7 +94,8 @@ type RegisterParams struct {
 	// Defaults to real clock if unspecified
 	Clock clockwork.Clock
 
-	EC2IdentityDocument []byte
+	EC2IdentityDocument  []byte
+	EC2IdentitySignature []byte
 }
 
 func (r *RegisterParams) setDefaults() {
@@ -183,6 +184,7 @@ func registerThroughProxy(token string, params RegisterParams) (*Identity, error
 			PublicTLSKey:         params.PublicTLSKey,
 			PublicSSHKey:         params.PublicSSHKey,
 			EC2IdentityDocument:  params.EC2IdentityDocument,
+			EC2IdentitySignature: params.EC2IdentitySignature,
 		})
 	if err != nil {
 		return nil, trace.Unwrap(err)
@@ -222,6 +224,7 @@ func registerThroughAuth(token string, params RegisterParams) (*Identity, error)
 		PublicTLSKey:         params.PublicTLSKey,
 		PublicSSHKey:         params.PublicSSHKey,
 		EC2IdentityDocument:  params.EC2IdentityDocument,
+		EC2IdentitySignature: params.EC2IdentitySignature,
 	})
 	if err != nil {
 		return nil, trace.Wrap(err)
