@@ -29,7 +29,6 @@ import (
 	"crypto"
 	"crypto/subtle"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math/rand"
@@ -39,10 +38,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws/ec2metadata"
 	"github.com/coreos/go-oidc/oauth2"
 	"github.com/coreos/go-oidc/oidc"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/gravitational/teleport"
 	"github.com/gravitational/teleport/api/client/proto"
 	"github.com/gravitational/teleport/api/constants"
@@ -1728,8 +1725,7 @@ type RegisterUsingTokenRequest struct {
 	// It is used to replace 0.0.0.0 in the list of additional principals.
 	RemoteAddr string `json:"remote_addr"`
 
-	EC2IdentityDocument  []byte `json:"ec2_id"`
-	EC2IdentitySignature []byte `json:"ec2_pkcs7"`
+	EC2IdentityDocument []byte `json:"ec2_id"`
 }
 
 // CheckAndSetDefaults checks for errors and sets defaults
@@ -1746,21 +1742,6 @@ func (r *RegisterUsingTokenRequest) CheckAndSetDefaults() error {
 	return nil
 }
 
-func (a *Server) CheckEC2Request(req RegisterUsingTokenRequest) error {
-	if req.EC2IdentityDocument == nil {
-		return nil
-	}
-	fmt.Println("NIC CheckEC2Request")
-	fmt.Println(string(req.EC2IdentityDocument))
-	fmt.Println(string(req.EC2IdentitySignature))
-	var iid ec2metadata.EC2InstanceIdentityDocument
-	if err := json.Unmarshal(req.EC2IdentityDocument, &iid); err != nil {
-		return trace.Wrap(err)
-	}
-	spew.Dump(iid)
-	return trace.NotImplemented("")
-}
-
 // RegisterUsingToken adds a new node to the Teleport cluster using previously issued token.
 // A node must also request a specific role (and the role must match one of the roles
 // the token was generated for).
@@ -1775,7 +1756,6 @@ func (a *Server) RegisterUsingToken(req RegisterUsingTokenRequest) (*PackedKeys,
 		return nil, trace.Wrap(err)
 	}
 
-	// check EC2 here
 	err := a.CheckEC2Request(req)
 	if err != nil {
 		return nil, trace.Wrap(err)
