@@ -322,6 +322,7 @@ github.com/gravitational/teleport/api/metadata
 github.com/gravitational/teleport/api/profile
 github.com/gravitational/teleport/api/types
 github.com/gravitational/teleport/api/types/events
+github.com/gravitational/teleport/api/types/webauthn
 github.com/gravitational/teleport/api/types/wrappers
 github.com/gravitational/teleport/api/utils
 github.com/gravitational/teleport/api/utils/keypaths
@@ -618,6 +619,9 @@ go.mongodb.org/mongo-driver/x/mongo/driver/session
 go.mongodb.org/mongo-driver/x/mongo/driver/topology
 go.mongodb.org/mongo-driver/x/mongo/driver/uuid
 go.mongodb.org/mongo-driver/x/mongo/driver/wiremessage
+# go.mozilla.org/pkcs7 v0.0.0-20210826202110-33d05740a352
+## explicit
+go.mozilla.org/pkcs7
 # go.opencensus.io v0.22.5
 ## explicit
 go.opencensus.io
