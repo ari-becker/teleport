@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"google.golang.org/genproto/googleapis/firestore/admin/v1"
 	"net/url"
 	"sort"
 	"strconv"
@@ -616,10 +617,17 @@ func (l *Log) ensureIndexes(adminSvc *apiv1.FirestoreAdminClient) error {
 	tuples = append(tuples, &firestorebk.IndexTuple{
 		FirstField:  eventNamespaceDocProperty,
 		SecondField: createdAtDocProperty,
+		SecondFieldOrder: admin.Index_IndexField_ASCENDING,
+	})
+	tuples = append(tuples, &firestorebk.IndexTuple{
+		FirstField:  eventNamespaceDocProperty,
+		SecondField: createdAtDocProperty,
+		SecondFieldOrder: admin.Index_IndexField_DESCENDING,
 	})
 	tuples = append(tuples, &firestorebk.IndexTuple{
 		FirstField:  sessionIDDocProperty,
 		SecondField: eventIndexDocProperty,
+		SecondFieldOrder: admin.Index_IndexField_ASCENDING,
 	})
 	err := firestorebk.EnsureIndexes(l.svcContext, adminSvc, tuples, l.getIndexParent())
 	return err
