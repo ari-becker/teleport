@@ -725,8 +725,8 @@ func (b *Backend) ensureIndexes(adminSvc *apiv1.FirestoreAdminClient) error {
 }
 
 type IndexTuple struct {
-	FirstField  string
-	SecondField string
+	FirstField       string
+	SecondField      string
 	SecondFieldOrder adminpb.Index_IndexField_Order
 }
 
