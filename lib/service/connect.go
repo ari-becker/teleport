@@ -372,48 +372,6 @@ func getIdentityDocument() ([]byte, error) {
 		return nil, trace.Wrap(err)
 	}
 	return iidBytes, nil
-	/*
-		var client http.Client
-		tokenRequest, err := http.NewRequest(http.MethodPut, "http://169.254.169.254/latest/api/token", nil)
-		if err != nil {
-			return nil, trace.Wrap(err)
-		}
-		tokenRequest.Header.Set("X-aws-ec2-metadata-token-ttl-seconds", "60")
-		resp, err := client.Do(tokenRequest)
-		if err != nil {
-			return nil, trace.Wrap(err)
-		}
-		defer resp.Body.Close()
-		respBytes, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return nil, trace.Wrap(err)
-		}
-		if resp.StatusCode != http.StatusOK {
-			return nil, trace.BadParameter("non-200 response from AWS IMDS endpoint: %q %v %q",
-				resp.Status, resp.Header, string(respBytes))
-		}
-		token := string(respBytes)
-
-		iidRequest, err := http.NewRequest(http.MethodGet, "http://169.254.169.254/latest/dynamic/instance-identity/document", nil)
-		if err != nil {
-			return nil, trace.Wrap(err)
-		}
-		iidRequest.Header.Set("X-aws-ec2-metadata-token", token)
-		resp, err = client.Do(iidRequest)
-		if err != nil {
-			return nil, trace.Wrap(err)
-		}
-		defer resp.Body.Close()
-		respBytes, err = io.ReadAll(resp.Body)
-		if err != nil {
-			return nil, trace.Wrap(err)
-		}
-		if resp.StatusCode != http.StatusOK {
-			return nil, trace.BadParameter("non-200 response from AWS IMDS endpoint: %q %v %q",
-				resp.Status, resp.Header, string(respBytes))
-		}
-		return respBytes, nil
-	*/
 }
 
 func getEC2ID() (string, error) {
