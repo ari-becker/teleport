@@ -51,6 +51,8 @@ type Application interface {
 	GetDescription() string
 	// GetURI returns the app connection endpoint.
 	GetURI() string
+	// SetURI sets the app endpoint.
+	SetURI(string)
 	// GetPublicAddr returns the app public address.
 	GetPublicAddr() string
 	// GetInsecureSkipVerify returns the app insecure setting.
@@ -202,9 +204,14 @@ func (a *AppV3) GetDescription() string {
 	return a.Metadata.Description
 }
 
-// GetURI returns the database connection address.
+// GetURI returns the app connection address.
 func (a *AppV3) GetURI() string {
 	return a.Spec.URI
+}
+
+// SetURI sets the app connection address.
+func (a *AppV3) SetURI(uri string) {
+	a.Spec.URI = uri
 }
 
 // GetPublicAddr returns the app public address.

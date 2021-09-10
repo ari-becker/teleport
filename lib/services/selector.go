@@ -38,16 +38,24 @@ func (s Selector) String() string {
 	return ""
 }
 
-// MatchDatabase returns true if any of the provided selectors matches the provided database.
-func MatchDatabase(selectors []Selector, database types.Database) bool {
+// ResourceWithLabels is a common interface for resources that have labels.
+type ResourceWithLabels interface {
+	// Resource is the base resource interface.
+	types.ResourceWithOrigin
+	// GetAllLabels returns all resource's labels.
+	GetAllLabels() map[string]string
+}
+
+// MatchResourceLabels returns true if any of the provided selectors matches the provided database.
+func MatchResourceLabels(selectors []Selector, resource ResourceWithLabels) bool {
 	for _, selector := range selectors {
 		if len(selector.MatchLabels) == 0 {
 			return false
 		}
-		match, _, err := MatchLabels(selector.MatchLabels, database.GetAllLabels())
+		match, _, err := MatchLabels(selector.MatchLabels, resource.GetAllLabels())
 		if err != nil {
 			logrus.WithError(err).Errorf("Failed to match labels %v: %v.",
-				selector.MatchLabels, database)
+				selector.MatchLabels, resource)
 			return false
 		}
 		if match {
@@ -56,3 +64,25 @@ func MatchDatabase(selectors []Selector, database types.Database) bool {
 	}
 	return false
 }
+
+// ResourcesWithLabels is a list of labeled resources.
+type ResourcesWithLabels []ResourceWithLabels
+
+// Find returns resource with the specified name or nil.
+func (r ResourcesWithLabels) Find(name string) ResourceWithLabels {
+	for _, resource := range r {
+		if resource.GetName() == name {
+			return resource
+		}
+	}
+	return nil
+}
+
+// Len returns the slice length.
+func (r ResourcesWithLabels) Len() int { return len(r) }
+
+// Less compares resources by name.
+func (r ResourcesWithLabels) Less(i, j int) bool { return r[i].GetName() < r[j].GetName() }
+
+// Swap swaps two resources.
+func (r ResourcesWithLabels) Swap(i, j int) { r[i], r[j] = r[j], r[i] }

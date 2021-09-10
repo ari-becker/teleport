@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package db
+package app
 
 import (
 	"context"
@@ -26,19 +26,19 @@ import (
 	"github.com/gravitational/trace"
 )
 
-// startWatcher starts watching changes to database resources and registers /
-// unregisters the proxied databases accordingly.
-func (s *Server) startWatcher(ctx context.Context) (*services.DatabaseWatcher, error) {
-	if len(s.cfg.Selectors) == 0 {
-		s.log.Debug("Not initializing database resource watcher.")
+// startWatcher starts watching changes to application resources and registers /
+// unregisters the proxied applications accordingly.
+func (s *Server) startWatcher(ctx context.Context) (*services.AppWatcher, error) {
+	if len(s.c.Selectors) == 0 {
+		s.log.Debug("Not initializing application resource watcher.")
 		return nil, nil
 	}
-	s.log.Debug("Initializing database resource watcher.")
-	watcher, err := services.NewDatabaseWatcher(ctx, services.DatabaseWatcherConfig{
+	s.log.Debug("Initializing application resource watcher.")
+	watcher, err := services.NewAppWatcher(ctx, services.AppWatcherConfig{
 		ResourceWatcherConfig: services.ResourceWatcherConfig{
-			Component: teleport.ComponentDatabase,
+			Component: teleport.ComponentApp,
 			Log:       s.log,
-			Client:    s.cfg.AccessPoint,
+			Client:    s.c.AccessPoint,
 		},
 	})
 	if err != nil {
@@ -48,14 +48,14 @@ func (s *Server) startWatcher(ctx context.Context) (*services.DatabaseWatcher, e
 		defer watcher.Close()
 		for {
 			select {
-			case databases := <-watcher.DatabasesC:
-				if err := s.reconciler.Reconcile(ctx, databasesToResources(databases)); err != nil {
-					s.log.WithError(err).Errorf("Failed to reconcile %v.", databases)
-				} else if s.cfg.OnReconcile != nil {
-					s.cfg.OnReconcile(s.getDatabases())
+			case apps := <-watcher.AppsC:
+				if err := s.reconciler.Reconcile(ctx, appsToResources(apps)); err != nil {
+					s.log.WithError(err).Errorf("Failed to reconcile %v.", apps)
+				} else if s.c.OnReconcile != nil {
+					s.c.OnReconcile(s.getApps())
 				}
 			case <-ctx.Done():
-				s.log.Debug("Database resource watcher done.")
+				s.log.Debug("Application resource watcher done.")
 				return
 			}
 		}
@@ -65,7 +65,7 @@ func (s *Server) startWatcher(ctx context.Context) (*services.DatabaseWatcher, e
 
 func (s *Server) initReconciler() error {
 	reconciler, err := services.NewReconciler(services.ReconcilerConfig{
-		Selectors:    s.cfg.Selectors,
+		Selectors:    s.c.Selectors,
 		GetResources: s.getResources,
 		OnCreate:     s.onCreate,
 		OnUpdate:     s.onUpdate,
@@ -80,32 +80,32 @@ func (s *Server) initReconciler() error {
 }
 
 func (s *Server) getResources() (resources services.ResourcesWithLabels) {
-	return databasesToResources(s.getDatabases())
+	return appsToResources(s.getApps())
 }
 
 func (s *Server) onCreate(ctx context.Context, resource services.ResourceWithLabels) error {
-	database, ok := resource.(types.Database)
+	app, ok := resource.(types.Application)
 	if !ok {
-		return trace.BadParameter("expected types.Database, got %T", resource)
+		return trace.BadParameter("expected types.Application, got %T", resource)
 	}
-	return s.registerDatabase(ctx, database)
+	return s.registerApp(ctx, app)
 }
 
 func (s *Server) onUpdate(ctx context.Context, resource services.ResourceWithLabels) error {
-	database, ok := resource.(types.Database)
+	app, ok := resource.(types.Application)
 	if !ok {
-		return trace.BadParameter("expected types.Database, got %T", resource)
+		return trace.BadParameter("expected types.Application, got %T", resource)
 	}
-	return s.updateDatabase(ctx, database)
+	return s.updateApp(ctx, app)
 }
 
 func (s *Server) onDelete(ctx context.Context, resource services.ResourceWithLabels) error {
-	return s.unregisterDatabase(ctx, resource.GetName())
+	return s.unregisterApp(ctx, resource.GetName())
 }
 
-func databasesToResources(databases []types.Database) (resources services.ResourcesWithLabels) {
-	for _, database := range databases {
-		resources = append(resources, database)
+func appsToResources(apps []types.Application) (resources services.ResourcesWithLabels) {
+	for _, app := range apps {
+		resources = append(resources, app)
 	}
 	return resources
 }

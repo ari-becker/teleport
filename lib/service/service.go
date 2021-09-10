@@ -3188,7 +3188,7 @@ func (process *TeleportProcess) initApps() {
 	// If no applications are specified, exit early. This is due to the strange
 	// behavior in reading file configuration. If the user does not specify an
 	// "app_service" section, that is considered enabling "app_service".
-	if len(process.Config.Apps.Apps) == 0 && !process.Config.Apps.DebugApp {
+	if len(process.Config.Apps.Apps) == 0 && !process.Config.Apps.DebugApp && len(process.Config.Apps.Selectors) == 0 {
 		return
 	}
 
@@ -3352,6 +3352,7 @@ func (process *TeleportProcess) initApps() {
 			Hostname:     process.Config.Hostname,
 			GetRotation:  process.getRotation,
 			Apps:         applications,
+			Selectors:    process.Config.Databases.Selectors,
 			OnHeartbeat: func(err error) {
 				if err != nil {
 					process.BroadcastEvent(Event{Name: TeleportDegradedEvent, Payload: teleport.ComponentApp})
