@@ -596,6 +596,13 @@ func NewTeleport(cfg *Config) (*TeleportProcess, error) {
 		return nil, trace.Wrap(err, "configuration error")
 	}
 
+	if len(cfg.AWSToken) != 0 {
+		cfg.Hostname, err = getEC2ID()
+		if err != nil {
+			return nil, trace.Wrap(err)
+		}
+	}
+
 	// If FIPS mode was requested make sure binary is build against BoringCrypto.
 	if cfg.FIPS {
 		if !modules.GetModules().IsBoringBinary() {

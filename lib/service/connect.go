@@ -17,9 +17,9 @@ limitations under the License.
 package service
 
 import (
+	"context"
 	"crypto/tls"
 	"io"
-	"net/http"
 	"path/filepath"
 	"time"
 
@@ -41,6 +41,8 @@ import (
 
 	"github.com/gravitational/trace"
 
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/feature/ec2/imds"
 	"github.com/sirupsen/logrus"
 )
 
@@ -328,41 +330,6 @@ func (process *TeleportProcess) reRegister(conn *Connector, additionalPrincipals
 	return identity, nil
 }
 
-const testIID = `{
-  "accountId" : "278576220453",
-  "architecture" : "x86_64",
-  "availabilityZone" : "us-west-2a",
-  "billingProducts" : null,
-  "devpayProductCodes" : null,
-  "marketplaceProductCodes" : null,
-  "imageId" : "ami-0fa9e1f64142cde17",
-  "instanceId" : "i-078517ca8a70a1dde",
-  "instanceType" : "t2.medium",
-  "kernelId" : null,
-  "pendingTime" : "2021-09-03T21:25:44Z",
-  "privateIp" : "10.0.0.209",
-  "ramdiskId" : null,
-  "region" : "us-west-2",
-  "version" : "2017-09-30"
-}`
-
-const testPKCS7 = `MIAGCSqGSIb3DQEHAqCAMIACAQExCzAJBgUrDgMCGgUAMIAGCSqGSIb3DQEHAaCAJIAEggHbewog
-ICJhY2NvdW50SWQiIDogIjI3ODU3NjIyMDQ1MyIsCiAgImFyY2hpdGVjdHVyZSIgOiAieDg2XzY0
-IiwKICAiYXZhaWxhYmlsaXR5Wm9uZSIgOiAidXMtd2VzdC0yYSIsCiAgImJpbGxpbmdQcm9kdWN0
-cyIgOiBudWxsLAogICJkZXZwYXlQcm9kdWN0Q29kZXMiIDogbnVsbCwKICAibWFya2V0cGxhY2VQ
-cm9kdWN0Q29kZXMiIDogbnVsbCwKICAiaW1hZ2VJZCIgOiAiYW1pLTBmYTllMWY2NDE0MmNkZTE3
-IiwKICAiaW5zdGFuY2VJZCIgOiAiaS0wNzg1MTdjYThhNzBhMWRkZSIsCiAgImluc3RhbmNlVHlw
-ZSIgOiAidDIubWVkaXVtIiwKICAia2VybmVsSWQiIDogbnVsbCwKICAicGVuZGluZ1RpbWUiIDog
-IjIwMjEtMDktMDNUMjE6MjU6NDRaIiwKICAicHJpdmF0ZUlwIiA6ICIxMC4wLjAuMjA5IiwKICAi
-cmFtZGlza0lkIiA6IG51bGwsCiAgInJlZ2lvbiIgOiAidXMtd2VzdC0yIiwKICAidmVyc2lvbiIg
-OiAiMjAxNy0wOS0zMCIKfQAAAAAAADGCAT8wggE7AgEBMGkwXDELMAkGA1UEBhMCVVMxGTAXBgNV
-BAgTEFdhc2hpbmd0b24gU3RhdGUxEDAOBgNVBAcTB1NlYXR0bGUxIDAeBgNVBAoTF0FtYXpvbiBX
-ZWIgU2VydmljZXMgTExDAgkAlrpI2eVeGmcwCQYFKw4DAhoFAKCBhDAYBgkqhkiG9w0BCQMxCwYJ
-KoZIhvcNAQcBMBwGCSqGSIb3DQEJBTEPFw0yMTA5MDMyMTI1NDdaMCMGCSqGSIb3DQEJBDEWBBR0
-A7m0GqlLp6TgjcDipiX4SHemYDAlBgkqhkiG9w0BCTQxGDAWMAkGBSsOAwIaBQChCQYHKoZIzjgE
-AzAJBgcqhkjOOAQDBC4wLAIULEsPazswgVc4qkWm5uf9a1tJ6i4CFE869b6pxyGu0PaM6z/Wzyfl
-8DshAAAAAAAA`
-
 const testRSA2048 = `MIAGCSqGSIb3DQEHAqCAMIACAQExDzANBglghkgBZQMEAgEFADCABgkqhkiG9w0BBwGggCSABIIB
 23sKICAiYWNjb3VudElkIiA6ICIyNzg1NzYyMjA0NTMiLAogICJhcmNoaXRlY3R1cmUiIDogIng4
 Nl82NCIsCiAgImF2YWlsYWJpbGl0eVpvbmUiIDogInVzLXdlc3QtMmEiLAogICJiaWxsaW5nUHJv
@@ -386,46 +353,81 @@ lr5x0X6+ggQfF2BKAJ/BRcAHNgAAAAAAAA==`
 
 func getIdentityDocument() ([]byte, error) {
 	return []byte(testRSA2048), nil
-	var client http.Client
-	tokenRequest, err := http.NewRequest(http.MethodPut, "http://169.254.169.254/latest/api/token", nil)
+	cfg, err := config.LoadDefaultConfig(context.TODO())
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
-	tokenRequest.Header.Set("X-aws-ec2-metadata-token-ttl-seconds", "60")
-	resp, err := client.Do(tokenRequest)
+	imdsClient := imds.NewFromConfig(cfg)
+	output, err := imdsClient.GetDynamicData(context.TODO(), &imds.GetDynamicDataInput{
+		Path: "instance-identity/rsa2048",
+	})
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
-	defer resp.Body.Close()
-	respBytes, err := io.ReadAll(resp.Body)
+	iidBytes, err := io.ReadAll(output.Content)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, trace.BadParameter("non-200 response from AWS IMDS endpoint: %q %v %q",
-			resp.Status, resp.Header, string(respBytes))
+	if err := output.Content.Close(); err != nil {
+		return trace.Wrap(err)
 	}
-	token := string(respBytes)
+	return iidBytes, nil
+	/*
+		var client http.Client
+		tokenRequest, err := http.NewRequest(http.MethodPut, "http://169.254.169.254/latest/api/token", nil)
+		if err != nil {
+			return nil, trace.Wrap(err)
+		}
+		tokenRequest.Header.Set("X-aws-ec2-metadata-token-ttl-seconds", "60")
+		resp, err := client.Do(tokenRequest)
+		if err != nil {
+			return nil, trace.Wrap(err)
+		}
+		defer resp.Body.Close()
+		respBytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, trace.Wrap(err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			return nil, trace.BadParameter("non-200 response from AWS IMDS endpoint: %q %v %q",
+				resp.Status, resp.Header, string(respBytes))
+		}
+		token := string(respBytes)
 
-	iidRequest, err := http.NewRequest(http.MethodGet, "http://169.254.169.254/latest/dynamic/instance-identity/document", nil)
+		iidRequest, err := http.NewRequest(http.MethodGet, "http://169.254.169.254/latest/dynamic/instance-identity/document", nil)
+		if err != nil {
+			return nil, trace.Wrap(err)
+		}
+		iidRequest.Header.Set("X-aws-ec2-metadata-token", token)
+		resp, err = client.Do(iidRequest)
+		if err != nil {
+			return nil, trace.Wrap(err)
+		}
+		defer resp.Body.Close()
+		respBytes, err = io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, trace.Wrap(err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			return nil, trace.BadParameter("non-200 response from AWS IMDS endpoint: %q %v %q",
+				resp.Status, resp.Header, string(respBytes))
+		}
+		return respBytes, nil
+	*/
+}
+
+func getEC2ID() (string, error) {
+	return "278576220453-i-078517ca8a70a1dde", nil
+	cfg, err := config.LoadDefaultConfig(context.TODO())
 	if err != nil {
-		return nil, trace.Wrap(err)
+		return "", trace.Wrap(err)
 	}
-	iidRequest.Header.Set("X-aws-ec2-metadata-token", token)
-	resp, err = client.Do(iidRequest)
+	imdsClient := imds.NewFromConfig(cfg)
+	iid, err := imdsClient.GetInstanceIdentityDocument(context.TODO(), nil)
 	if err != nil {
-		return nil, trace.Wrap(err)
+		return "", trace.Wrap(err)
 	}
-	defer resp.Body.Close()
-	respBytes, err = io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, trace.Wrap(err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, trace.BadParameter("non-200 response from AWS IMDS endpoint: %q %v %q",
-			resp.Status, resp.Header, string(respBytes))
-	}
-	return respBytes, nil
+	return iid.AccountID + "-" + iid.InstanceID, nil
 }
 
 func (process *TeleportProcess) firstTimeConnect(role types.SystemRole) (*Connector, error) {

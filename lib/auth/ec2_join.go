@@ -23,15 +23,23 @@ import (
 	"encoding/pem"
 	"fmt"
 
-	"github.com/aws/aws-sdk-go/aws/ec2metadata"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
+	"github.com/aws/aws-sdk-go-v2/feature/ec2/imds"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/trace"
 	"go.mozilla.org/pkcs7"
 )
 
-func checkEC2AllowRules(iid ec2metadata.EC2InstanceIdentityDocument, token types.ProvisionToken) error {
+func checkEC2AllowRules(iid *imds.InstanceIdentityDocument, token types.ProvisionToken) error {
 	allowRules := token.GetAllowRules()
 	for _, rule := range allowRules {
+		spew.Dump(rule)
 		if len(rule.AWSAccount) > 0 {
 			if rule.AWSAccount != iid.AccountID {
 				continue
@@ -49,14 +57,103 @@ func checkEC2AllowRules(iid ec2metadata.EC2InstanceIdentityDocument, token types
 				continue
 			}
 		}
-		// iid matches this allow rule
-		return nil
+		// iid matches this allow rule. Check if it is running.
+		return trace.Wrap(checkInstanceRunning(iid.InstanceID, rule.AWSRole))
 	}
 	return trace.AccessDenied("instance did not match any allow rules")
 }
 
+func checkInstanceRunning(instanceID, role string) error {
+	println("NIC checkInstanceRunning")
+	config, err := config.LoadDefaultConfig(context.TODO())
+	if err != nil {
+		return trace.Wrap(err)
+	}
+
+	// assume the role if necessary
+	if role != "" {
+		stsClient := sts.NewFromConfig(config)
+		creds := stscreds.NewAssumeRoleProvider(stsClient, role)
+		config.Credentials = aws.NewCredentialsCache(creds)
+	}
+
+	ec2Client := ec2.NewFromConfig(config)
+
+	output, err := ec2Client.DescribeInstances(context.TODO(), &ec2.DescribeInstancesInput{
+		InstanceIds: []string{instanceID},
+	})
+	if err != nil {
+		return trace.Wrap(err)
+	}
+
+	if len(output.Reservations) == 0 || len(output.Reservations[0].Instances) == 0 {
+		return trace.AccessDenied("")
+	}
+	instance := output.Reservations[0].Instances[0]
+	if instance.InstanceId == nil || *instance.InstanceId != instanceID {
+		return trace.AccessDenied("")
+	}
+	if instance.State == nil || instance.State.Code == nil || instance.State.Name != ec2types.InstanceStateNameRunning {
+		return trace.AccessDenied("")
+	}
+	return nil
+}
+
+func parseAndCheckIID(iidBytes []byte) (*imds.InstanceIdentityDocument, error) {
+	sigPEM := fmt.Sprintf("-----BEGIN PKCS7-----\n%s\n-----END PKCS7-----", string(iidBytes))
+	sigBER, _ := pem.Decode([]byte(sigPEM))
+	if sigBER == nil {
+		return nil, trace.AccessDenied("unable to decode Instance Identity Document")
+	}
+
+	p7, err := pkcs7.Parse(sigBER.Bytes)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+
+	var iid imds.InstanceIdentityDocument
+	if err := json.Unmarshal(p7.Content, &iid); err != nil {
+		return nil, trace.Wrap(err)
+	}
+	spew.Dump(iid)
+
+	awsCert, ok := awsCerts[iid.Region]
+	if !ok {
+		return nil, trace.AccessDenied("unsupported EC2 region: %q", iid.Region)
+	}
+	p7.Certificates = []*x509.Certificate{awsCert}
+	if err = p7.Verify(); err != nil {
+		return nil, trace.AccessDenied("invalid signature")
+	}
+	return &iid, nil
+}
+
+func (a *Server) checkInstanceUnique(req RegisterUsingTokenRequest, iid *imds.InstanceIdentityDocument) error {
+	// make sure this instance has not already joined the cluster
+	if req.NodeName != iid.AccountID+"-"+iid.InstanceID {
+		return trace.AccessDenied("invalid host name %q, expected %q", req.NodeName, iid.AccountID+"-"+iid.InstanceID)
+	}
+	namespaces, err := a.GetNamespaces()
+	if err != nil {
+		return trace.Wrap(err)
+	}
+	for _, namespace := range namespaces {
+		_, err := a.GetNode(context.TODO(), namespace.GetName(), req.NodeName)
+		if trace.IsNotFound(err) {
+			continue
+		} else if err != nil {
+			return trace.Wrap(err)
+		} else {
+			return trace.AccessDenied("node with this name already exists")
+		}
+	}
+	return nil
+}
+
 func (a *Server) CheckEC2Request(req RegisterUsingTokenRequest) error {
+	println("NIC CheckEC2Request")
 	if req.EC2IdentityDocument == nil {
+		// not a simplified node joining request
 		return nil
 	}
 
@@ -65,34 +162,17 @@ func (a *Server) CheckEC2Request(req RegisterUsingTokenRequest) error {
 		return trace.Wrap(err)
 	}
 
-	sigPEM := fmt.Sprintf("-----BEGIN PKCS7-----\n%s\n-----END PKCS7-----", string(req.EC2IdentityDocument))
-	sigBER, _ := pem.Decode([]byte(sigPEM))
-	if sigBER == nil {
-		return trace.BadParameter("")
-	}
-
-	p7, err := pkcs7.Parse(sigBER.Bytes)
+	iid, err := parseAndCheckIID(req.EC2IdentityDocument)
 	if err != nil {
 		return trace.Wrap(err)
 	}
 
-	var iid ec2metadata.EC2InstanceIdentityDocument
-	if err := json.Unmarshal(p7.Content, &iid); err != nil {
+	if err := a.checkInstanceUnique(req, iid); err != nil {
 		return trace.Wrap(err)
 	}
 
-	if err := checkEC2AllowRules; err != nil {
+	if err := checkEC2AllowRules(iid, token); err != nil {
 		return trace.Wrap(err)
-	}
-
-	awsCert, ok := awsCerts[iid.Region]
-	if !ok {
-		return trace.AccessDenied("unsupported EC2 region: %q", iid.Region)
-	}
-
-	p7.Certificates = []*x509.Certificate{awsCert}
-	if err = p7.Verify(); err != nil {
-		return trace.AccessDenied("invalid signature")
 	}
 
 	return nil
@@ -125,7 +205,7 @@ QpVoZdt0SfbuNnmwRUMi+QbuccXweav29QeQ3ADqjgB0CZdSRKk=
 -----END CERTIFICATE-----`),
 }
 
-var awsCerts map[string]*x509.Certificate
+var awsCerts = map[string]*x509.Certificate{}
 
 func init() {
 	for region, certBytes := range awsCertBytes {
