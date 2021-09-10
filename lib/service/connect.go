@@ -369,7 +369,7 @@ func getIdentityDocument() ([]byte, error) {
 		return nil, trace.Wrap(err)
 	}
 	if err := output.Content.Close(); err != nil {
-		return trace.Wrap(err)
+		return nil, trace.Wrap(err)
 	}
 	return iidBytes, nil
 	/*
