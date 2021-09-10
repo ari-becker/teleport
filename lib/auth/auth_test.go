@@ -1275,10 +1275,12 @@ func TestDeleteMFADeviceSync(t *testing.T) {
 	err = srv.Auth().SetAuthPreference(ctx, authPreference)
 	require.NoError(t, err)
 
-	// Insert two devices.
-	err = insertDummyTOTPDevice(srv, username, "otp")
+	// Insert dummy devices.
+	deviceToDelete, err := insertDummyTOTPDevice(srv, username, "otp")
 	require.NoError(t, err)
-	err = insertDummyU2FDevice(srv, username, "u2f")
+	u2fDev, err := insertDummyU2FDevice(srv, username, "u2f")
+	require.NoError(t, err)
+	totpDev, err := insertDummyTOTPDevice(srv, username, "otp2")
 	require.NoError(t, err)
 
 	// Acquire an approved token.
@@ -1294,7 +1296,7 @@ func TestDeleteMFADeviceSync(t *testing.T) {
 	// Delete the TOTP device.
 	err = srv.Auth().DeleteMFADeviceSync(ctx, &proto.DeleteMFADeviceSyncRequest{
 		TokenID:    token.GetName(),
-		DeviceName: "otp",
+		DeviceName: deviceToDelete.GetName(),
 	})
 	require.NoError(t, err)
 
@@ -1303,8 +1305,8 @@ func TestDeleteMFADeviceSync(t *testing.T) {
 		RecoveryApprovedTokenID: token.GetName(),
 	})
 	require.NoError(t, err)
-	require.Len(t, res.GetDevices(), 1)
-	require.Equal(t, res.GetDevices()[0].GetName(), "u2f")
+	require.Greater(t, len(res.GetDevices()), 1)
+	require.ElementsMatch(t, []*types.MFADevice{u2fDev, totpDev}, res.GetDevices())
 
 	// Test events emitted.
 	event := mockEmitter.LastEvent()
@@ -1335,36 +1337,39 @@ func TestDeleteMFADeviceSync_WithErrors(t *testing.T) {
 	require.NoError(t, err)
 
 	// Insert a device.
-	defaultDeviceName := "otp"
-	err = insertDummyTOTPDevice(srv, username, defaultDeviceName)
+	deviceToDelete, err := insertDummyTOTPDevice(srv, username, "otp")
 	require.NoError(t, err)
 
 	tests := []struct {
-		name         string
-		deviceName   string
-		tokenRequest *CreateUserTokenRequest
+		name          string
+		deviceName    string
+		tokenRequest  *CreateUserTokenRequest
+		assertErrType func(error) bool
 	}{
 		{
-			name:       "token not found",
-			deviceName: defaultDeviceName,
+			name:          "token not found",
+			deviceName:    deviceToDelete.GetName(),
+			assertErrType: trace.IsAccessDenied,
 		},
 		{
 			name:       "invalid token type",
-			deviceName: defaultDeviceName,
+			deviceName: deviceToDelete.GetName(),
 			tokenRequest: &CreateUserTokenRequest{
 				Name: username,
 				TTL:  5 * time.Minute,
 				Type: "unknown-token-type",
 			},
+			assertErrType: trace.IsAccessDenied,
 		},
 		{
-			name:       "device name does not exist",
+			name:       "device not found",
 			deviceName: "does-not-exist",
 			tokenRequest: &CreateUserTokenRequest{
 				Name: username,
 				TTL:  5 * time.Minute,
 				Type: UserTokenTypeRecoveryApproved,
 			},
+			assertErrType: trace.IsNotFound,
 		},
 	}
 
@@ -1385,13 +1390,7 @@ func TestDeleteMFADeviceSync_WithErrors(t *testing.T) {
 				TokenID:    tokenID,
 				DeviceName: tc.deviceName,
 			})
-
-			switch {
-			case tc.deviceName != defaultDeviceName:
-				require.True(t, trace.IsNotFound(err))
-			default:
-				require.True(t, trace.IsAccessDenied(err))
-			}
+			require.True(t, tc.assertErrType(err))
 		})
 	}
 }
@@ -1411,12 +1410,11 @@ func TestDeleteMFADeviceSync_LastDevice(t *testing.T) {
 	tests := []struct {
 		name              string
 		wantErr           bool
-		secondFactorType  string
 		setAuthPreference func()
+		createDevice      func(svr *TestTLSServer, user string) (*types.MFADevice, error)
 	}{
 		{
-			name:             "with second factor optional",
-			secondFactorType: "otp",
+			name: "with second factor optional",
 			setAuthPreference: func() {
 				authPreference, err := types.NewAuthPreference(types.AuthPreferenceSpecV2{
 					Type:         constants.Local,
@@ -1427,11 +1425,13 @@ func TestDeleteMFADeviceSync_LastDevice(t *testing.T) {
 				err = srv.Auth().SetAuthPreference(ctx, authPreference)
 				require.NoError(t, err)
 			},
+			createDevice: func(svr *TestTLSServer, user string) (*types.MFADevice, error) {
+				return insertDummyTOTPDevice(srv, user, "otp")
+			},
 		},
 		{
-			name:             "with second factor otp",
-			wantErr:          true,
-			secondFactorType: "otp",
+			name:    "with second factor otp",
+			wantErr: true,
 			setAuthPreference: func() {
 				authPreference, err := types.NewAuthPreference(types.AuthPreferenceSpecV2{
 					Type:         constants.Local,
@@ -1441,11 +1441,13 @@ func TestDeleteMFADeviceSync_LastDevice(t *testing.T) {
 				err = srv.Auth().SetAuthPreference(ctx, authPreference)
 				require.NoError(t, err)
 			},
+			createDevice: func(svr *TestTLSServer, user string) (*types.MFADevice, error) {
+				return insertDummyTOTPDevice(srv, user, "otp")
+			},
 		},
 		{
-			name:             "with second factor u2f",
-			wantErr:          true,
-			secondFactorType: "u2f",
+			name:    "with second factor u2f",
+			wantErr: true,
 			setAuthPreference: func() {
 				authPreference, err := types.NewAuthPreference(types.AuthPreferenceSpecV2{
 					Type:         constants.Local,
@@ -1456,11 +1458,13 @@ func TestDeleteMFADeviceSync_LastDevice(t *testing.T) {
 				err = srv.Auth().SetAuthPreference(ctx, authPreference)
 				require.NoError(t, err)
 			},
+			createDevice: func(svr *TestTLSServer, user string) (*types.MFADevice, error) {
+				return insertDummyU2FDevice(srv, user, "u2f")
+			},
 		},
 		{
-			name:             "with second factor on",
-			wantErr:          true,
-			secondFactorType: "otp",
+			name:    "with second factor on",
+			wantErr: true,
 			setAuthPreference: func() {
 				authPreference, err := types.NewAuthPreference(types.AuthPreferenceSpecV2{
 					Type:         constants.Local,
@@ -1470,6 +1474,9 @@ func TestDeleteMFADeviceSync_LastDevice(t *testing.T) {
 				require.NoError(t, err)
 				err = srv.Auth().SetAuthPreference(ctx, authPreference)
 				require.NoError(t, err)
+			},
+			createDevice: func(svr *TestTLSServer, user string) (*types.MFADevice, error) {
+				return insertDummyTOTPDevice(srv, user, "otp")
 			},
 		},
 	}
@@ -1485,14 +1492,8 @@ func TestDeleteMFADeviceSync_LastDevice(t *testing.T) {
 			tc.setAuthPreference()
 
 			// Insert a MFA device.
-			switch {
-			case tc.secondFactorType == "otp":
-				err = insertDummyTOTPDevice(srv, username, tc.secondFactorType)
-				require.NoError(t, err)
-			case tc.secondFactorType == "u2f":
-				err = insertDummyU2FDevice(srv, username, tc.secondFactorType)
-				require.NoError(t, err)
-			}
+			dev, err := tc.createDevice(srv, username)
+			require.NoError(t, err)
 
 			// Acquire an approved token.
 			token, err := srv.Auth().newUserToken(CreateUserTokenRequest{
@@ -1507,7 +1508,7 @@ func TestDeleteMFADeviceSync_LastDevice(t *testing.T) {
 			// Delete the device.
 			err = srv.Auth().DeleteMFADeviceSync(ctx, &proto.DeleteMFADeviceSyncRequest{
 				TokenID:    token.GetName(),
-				DeviceName: tc.secondFactorType,
+				DeviceName: dev.GetName(),
 			})
 
 			switch {
@@ -1535,8 +1536,9 @@ func TestGetMFADevices_WithToken(t *testing.T) {
 	_, _, err := CreateUserAndRole(srv.Auth(), username, []string{username})
 	require.NoError(t, err)
 
-	// Insert a device.
-	err = insertDummyTOTPDevice(srv, username, "otp")
+	totpDev, err := insertDummyTOTPDevice(srv, username, "otp")
+	require.NoError(t, err)
+	u2fDev, err := insertDummyU2FDevice(srv, username, "u2f")
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -1591,8 +1593,8 @@ func TestGetMFADevices_WithToken(t *testing.T) {
 				require.True(t, trace.IsAccessDenied(err))
 			default:
 				require.NoError(t, err)
-				require.Len(t, res.GetDevices(), 1)
-				require.Equal(t, res.GetDevices()[0].GetName(), "otp")
+				require.Greater(t, len(res.GetDevices()), 1)
+				require.ElementsMatch(t, []*types.MFADevice{totpDev, u2fDev}, res.GetDevices())
 			}
 		})
 	}
@@ -1607,7 +1609,9 @@ func TestGetMFADevices_WithAuth(t *testing.T) {
 	_, _, err := CreateUserAndRole(srv.Auth(), username, []string{username})
 	require.NoError(t, err)
 
-	err = insertDummyTOTPDevice(srv, username, "otp")
+	totpDev, err := insertDummyTOTPDevice(srv, username, "otp")
+	require.NoError(t, err)
+	u2fDev, err := insertDummyU2FDevice(srv, username, "u2f")
 	require.NoError(t, err)
 
 	clt, err := srv.NewClient(TestUser(username))
@@ -1615,8 +1619,8 @@ func TestGetMFADevices_WithAuth(t *testing.T) {
 
 	res, err := clt.GetMFADevices(ctx, &proto.GetMFADevicesRequest{})
 	require.NoError(t, err)
-	require.Len(t, res.GetDevices(), 1)
-	require.Equal(t, res.GetDevices()[0].GetName(), "otp")
+	require.Greater(t, len(res.GetDevices()), 1)
+	require.ElementsMatch(t, []*types.MFADevice{totpDev, u2fDev}, res.GetDevices())
 }
 
 func newTestServices(t *testing.T) Services {
@@ -1639,24 +1643,24 @@ func newTestServices(t *testing.T) Services {
 	}
 }
 
-func insertDummyTOTPDevice(srv *TestTLSServer, username, deviceName string) error {
+func insertDummyTOTPDevice(srv *TestTLSServer, username, deviceName string) (*types.MFADevice, error) {
 	dev := types.NewMFADevice(deviceName, uuid.New(), srv.Auth().clock.Now())
 	dev.Device = &types.MFADevice_Totp{Totp: &types.TOTPDevice{}}
 
 	if err := srv.Auth().UpsertMFADevice(context.Background(), username, dev); err != nil {
-		return trace.Wrap(err)
+		return nil, trace.Wrap(err)
 	}
 
-	return nil
+	return dev, nil
 }
 
-func insertDummyU2FDevice(srv *TestTLSServer, username, deviceName string) error {
+func insertDummyU2FDevice(srv *TestTLSServer, username, deviceName string) (*types.MFADevice, error) {
 	dev := types.NewMFADevice(deviceName, uuid.New(), srv.Auth().clock.Now())
 	dev.Device = &types.MFADevice_U2F{U2F: &types.U2FDevice{}}
 
 	if err := srv.Auth().UpsertMFADevice(context.Background(), username, dev); err != nil {
-		return trace.Wrap(err)
+		return nil, trace.Wrap(err)
 	}
 
-	return nil
+	return dev, nil
 }
