@@ -16,6 +16,12 @@ require (
 	github.com/aquasecurity/libbpfgo v0.1.0
 	github.com/armon/go-radix v1.0.0
 	github.com/aws/aws-sdk-go v1.37.17
+	github.com/aws/aws-sdk-go-v2 v1.9.0
+	github.com/aws/aws-sdk-go-v2/config v1.8.0
+	github.com/aws/aws-sdk-go-v2/credentials v1.4.0
+	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.5.0
+	github.com/aws/aws-sdk-go-v2/service/ec2 v1.16.0
+	github.com/aws/aws-sdk-go-v2/service/sts v1.7.0
 	github.com/beevik/etree v1.1.0
 	github.com/boombuler/barcode v1.0.1 // indirect
 	github.com/coreos/go-oidc v0.0.4
@@ -35,7 +41,7 @@ require (
 	github.com/gokyle/hotp v0.0.0-20160218004637-c180d57d286b
 	github.com/golang/protobuf v1.4.3
 	github.com/google/btree v1.0.0
-	github.com/google/go-cmp v0.5.4
+	github.com/google/go-cmp v0.5.6
 	github.com/google/gops v0.3.14
 	github.com/google/uuid v1.2.0
 	github.com/gopherjs/gopherjs v0.0.0-20190430165422-3e4dfb77656c // indirect
